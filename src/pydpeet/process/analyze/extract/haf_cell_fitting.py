@@ -95,13 +95,12 @@ def fit_half_cells(full_df: pd.DataFrame, anode_df: pd.DataFrame, cathode_df: pd
     an_domain = (float(anode_df[anode_x].min()), float(anode_df[anode_x].max()))
     cat_domain = (float(cathode_df[cathode_x].min()), float(cathode_df[cathode_x].max()))
 
-    # Build full-cell reference on a uniform SOC grid [0, 1]
+    # Build full-cell reference on the measured SOC window
     fc = (full_df[[full_x_col, full_y_col]].dropna()
           .sort_values(by=full_x_col).drop_duplicates(subset=[full_x_col]))
     soc_raw = fc[full_x_col].values.astype(float)
-    soc_norm = (soc_raw - soc_raw.min()) / (soc_raw.max() - soc_raw.min())
-    fc_spline = CSP(soc_norm, fc[full_y_col].values.astype(float))
-    soc_grid = np.linspace(0, 1, 300)
+    fc_spline = CSP(soc_raw, fc[full_y_col].values.astype(float))
+    soc_grid = np.linspace(soc_raw.min(), soc_raw.max(), 300)
     V_full = fc_spline(soc_grid)
 
     # Optimizer bounds: [a_min, a_max, c_min, c_max] clamped to the actual data range
@@ -288,7 +287,7 @@ def plot_half_cell_match(full_df: pd.DataFrame,
     an_spline = CSP(an_clean[anode_x].values.astype(float), an_clean[anode_y].values.astype(float))
     cat_spline = CSP(cat_clean[cathode_x].values.astype(float), cat_clean[cathode_y].values.astype(float))
 
-    soc_grid = np.linspace(0, 1, 300)
+    soc_grid = np.linspace(full_df[full_x].min(), full_df[full_x].max(), 300)
 
     # Simulate: anode lithiation increases, cathode decreases during charge
     lith_a = a_min + soc_grid * (a_max - a_min)
