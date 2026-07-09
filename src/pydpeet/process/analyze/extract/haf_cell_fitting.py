@@ -45,34 +45,6 @@ def _objective_fn(params: np.ndarray,
     V_sim = cat_spline(lith_c) - an_spline(lith_a)
     return float(np.sqrt(np.mean((V_full - V_sim) ** 2)))
 
-
-# ---------------------------------------------------------------------------
-# Backward-compatible helper (kept for external use)
-# ---------------------------------------------------------------------------
-
-""" def interpolate_and_norm(df: pd.DataFrame, colm: str, voltage_col: str,
-                         steps: int, bounds: List[float] = None) -> pd.DataFrame:
-    df_copy = df.copy()
-    df_copy = df_copy.sort_values(by=colm).drop_duplicates(subset=[colm])
-
-    if bounds is not None:
-        x_new = np.linspace(bounds[0], bounds[1], steps)
-        spl = CSP(df_copy[colm], df_copy[voltage_col])
-        df_int_norm = pd.DataFrame({colm: x_new, voltage_col: spl(x_new)})
-        df_int_norm[colm] = (df_int_norm[colm] - df_int_norm[colm].min()) / (
-            df_int_norm[colm].max() - df_int_norm[colm].min()
-        )
-        return df_int_norm
-    else:
-        x_new = np.linspace(df_copy[colm].min(), df_copy[colm].max(), steps)
-        spl = CSP(df_copy[colm], df_copy[voltage_col])
-        result = pd.DataFrame({colm: x_new, voltage_col: spl(x_new)})
-        result[colm] = (result[colm] - result[colm].min()) / (
-            result[colm].max() - result[colm].min()
-        )
-        return result """
-
-
 # ---------------------------------------------------------------------------
 # Core fitting
 # ---------------------------------------------------------------------------

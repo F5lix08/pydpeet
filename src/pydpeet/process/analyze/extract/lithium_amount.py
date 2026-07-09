@@ -17,8 +17,13 @@ def extract_full_cap_mAh(df: pd.DataFrame) -> float:
        ``add_capacity`` has already been run).
 
     2. **Integration fallback** – if the column is absent or all-NaN the
-       discharge current is integrated over time via the trapezoidal rule:
-       ``C = ∫ |I(t)| dt``  (only negative-current samples are used).
+       discharge current is integrated over time via the trapezoidal rule,
+       separately for every contiguous discharge segment (run of consecutive
+       samples with ``Current[A] < 0``); the largest segment capacity is
+       returned. Integrating per segment keeps the trapezoidal rule from
+       bridging the time gaps between separate discharge phases (e.g. iOCV
+       pulses) with phantom charge, and the maximum picks the full
+       discharge of the capacity test rather than the sum of all pulses.
 
     Parameters
     ----------
@@ -52,15 +57,36 @@ def extract_full_cap_mAh(df: pd.DataFrame) -> float:
             "'Capacity[Ah]' column or with 'Current[A]' and 'Test_Time[s]'."
         )
 
-    discharge = df[df["Current[A]"] < 0].dropna(subset=["Current[A]", "Test_Time[s]"])
-    if discharge.empty:
+    d = (df.dropna(subset=["Current[A]", "Test_Time[s]"])
+           .sort_values("Test_Time[s]")
+           .reset_index(drop=True))
+    time_s = d["Test_Time[s]"].values.astype(float)
+    current_a = d["Current[A]"].values.astype(float)
+
+    is_discharge = current_a < 0
+    if not is_discharge.any():
         raise ValueError(
             "Cannot extract capacity: no discharge samples (Current[A] < 0) found."
         )
 
-    time_s = discharge["Test_Time[s]"].values.astype(float)
-    current_a = discharge["Current[A]"].values.astype(float)
-    cap_ah = integrate.trapezoid(np.abs(current_a), time_s) / 3600.0
+    # Contiguous discharge segments: integrate each separately, take the
+    # largest (= the full discharge of the capacity test).
+    transitions = np.flatnonzero(np.diff(is_discharge.astype(np.int8))) + 1
+    seg_starts = np.concatenate([[0], transitions])
+    seg_ends = np.concatenate([transitions, [len(is_discharge)]])  # exclusive
+
+    cap_ah = 0.0
+    for s, e in zip(seg_starts, seg_ends):
+        if not is_discharge[s] or (e - s) < 2:
+            continue
+        seg_ah = integrate.trapezoid(np.abs(current_a[s:e]), time_s[s:e]) / 3600.0
+        cap_ah = max(cap_ah, seg_ah)
+
+    if cap_ah == 0.0:
+        raise ValueError(
+            "Cannot extract capacity: no discharge segment with at least "
+            "two samples found."
+        )
     return float(cap_ah * 1000)
 
 
@@ -109,8 +135,11 @@ def calculate_electrode_quantities(
         C_Anode_mAh                Nominal anode capacity = C_full / Δlith_a
         C_Cathode_mAh              Nominal cathode capacity = C_full / Δlith_c
         NP_Ratio                   C_Anode / C_Cathode
-        Li_Inventory_mAh           Active lithium per cycle (= C_full)
-        Li_Inventory_mol           Active lithium in mol
+        Li_Inventory_mAh           Lithium inventory from the electrode
+                                   balance = C_Anode·a_min + C_Cathode·c_max
+                                   (total Li in both electrodes at SOC 0;
+                                   identical at SOC 100)
+        Li_Inventory_mol           Lithium inventory in mol
         Anode_Lith_SOC0            Anode lithiation at SOC = 0 % (a_min)
         Anode_Lith_SOC100          Anode lithiation at SOC = 100 % (a_max)
         Cathode_Lith_SOC0          Cathode lithiation at SOC = 0 % (c_max)
@@ -153,7 +182,14 @@ def calculate_electrode_quantities(
 
         C_anode   = full_cap_mAh / delta_a
         C_cathode = full_cap_mAh / delta_c
-        Li_inventory_mol = full_cap_mAh / _FARADAY_mAh_per_mol
+
+        # Lithium inventory from the electrode balance: total lithium held
+        # in both electrodes at one full-cell state (here SOC 0). By charge
+        # conservation the same value results at SOC 100. This is NOT the
+        # full-cell capacity: it additionally counts the lithium that stays
+        # in the electrodes at the SOC extremes (a_min > 0, c_min > 0).
+        Li_inventory_mAh = a_min * C_anode + c_max * C_cathode
+        Li_inventory_mol = Li_inventory_mAh / _FARADAY_mAh_per_mol
 
         rows.append({
             # ── full cell ────────────────────────────────────────────────
@@ -163,7 +199,7 @@ def calculate_electrode_quantities(
             "C_Cathode_mAh":         C_cathode,
             "NP_Ratio":              C_anode / C_cathode,
             # ── lithium inventory ────────────────────────────────────────
-            "Li_Inventory_mAh":      full_cap_mAh,
+            "Li_Inventory_mAh":      Li_inventory_mAh,
             "Li_Inventory_mol":      Li_inventory_mol,
             # ── stoichiometric endpoints ─────────────────────────────────
             "Anode_Lith_SOC0":       a_min,

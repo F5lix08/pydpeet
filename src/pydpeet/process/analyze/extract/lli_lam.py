@@ -1,16 +1,16 @@
 """
 LLI / LAM calculation from half-cell fitting results.
 
-NOTE: this file is named ``lli+lam.py`` for historical reasons.  Because the
-``+`` character is not valid in a Python module name it cannot be imported with
-a standard ``import`` statement.  Rename the file to ``lli_lam.py`` to use it
-as a regular module.
-
 Terminology
 -----------
 LLI  – Loss of Lithium Inventory
-         Reduction in the amount of cyclable lithium between a reference and a
+         Reduction in the lithium inventory between a reference and a
          current measurement.  Caused by SEI growth, lithium plating, etc.
+         The inventory is taken from the electrode balance
+         (``Li_Inventory_mAh = C_Anode·a_min + C_Cathode·c_max``, see
+         ``calculate_electrode_quantities``), NOT from the full-cell
+         capacity — LLI therefore carries information independent of the
+         SOH and is reported relative to the reference inventory.
 
 LAM_Anode    – Loss of Active Material (Anode)
 LAM_Cathode  – Loss of Active Material (Cathode)
@@ -53,8 +53,11 @@ def calculate_lli_lam(
         Full_Cell_Cap_ref_mAh      Reference cell capacity
         Full_Cell_Cap_mAh          Current cell capacity
         SOH_pct                    State of Health  = Cap_now / Cap_ref × 100
-        LLI_mAh                    Absolute LLI in mAh
-        LLI_pct                    Relative LLI in %
+        LLI_mAh                    Absolute LLI in mAh (electrode-balance
+                                   inventory, reference − aged)
+        LLI_pct                    LLI relative to the reference inventory
+                                   in % (not relative to the capacity, so
+                                   not directly comparable to SOH points)
         LAM_Anode_mAh              Absolute LAM (Anode) in mAh
         LAM_Anode_pct              Relative LAM (Anode) in %
         LAM_Cathode_mAh            Absolute LAM (Cathode) in mAh

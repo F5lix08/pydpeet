@@ -25,6 +25,8 @@ pair explains every window consistently.
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 import pandas as pd
 
 from pydpeet.process.analyze.extract.field_data_loader import split_by_time_window
@@ -65,6 +67,7 @@ def fit_real_data(
     anodes_dir: str = dir_anode,
     cathodes_dir: str = dir_cathode,
     verbose: bool = True,
+    max_workers: int | None = None,
 ) -> pd.DataFrame:
     """
     Identify the most consistent half-cell pair for one field-data cell.
@@ -101,6 +104,15 @@ def fit_real_data(
     verbose : bool, default True
         Print per-window skip reasons, the dropped windows and the chosen
         pair.
+    max_workers : int, optional
+        Number of worker threads used to run the per-window
+        :func:`find_best_half_cell_match` calls in parallel. The grid
+        search is CPU-bound but spends most of its time inside SciPy
+        routines that release the GIL, so threading scales well in
+        practice. ``None`` (default) uses
+        :class:`~concurrent.futures.ThreadPoolExecutor`'s default
+        (``min(32, os.cpu_count() + 4)``). Set to ``1`` to run
+        sequentially.
 
     Returns
     -------
@@ -136,7 +148,10 @@ def fit_real_data(
 
     chunks = split_by_time_window(df, window_days=window_days)
 
-    per_chunk_rankings: list[pd.DataFrame] = []
+    # Phase 1 (sequenziell, billig): Pausen + OCV-Anchors pro Chunk, dabei
+    # die Skip-Entscheidungen in stabiler Reihenfolge loggen. Es bleibt eine
+    # Liste der Chunks übrig, die in Phase 2 tatsächlich gefittet werden.
+    fit_jobs: list[tuple[int, pd.DataFrame]] = []
     for i, chunk in enumerate(chunks):
         pauses = extract_pauses(
             chunk,
@@ -162,17 +177,33 @@ def fit_real_data(
                 print(f"chunk {i:>2}: nur {len(df_for_fit)} OCV-Punkte → übersprungen")
             continue
 
+        fit_jobs.append((i, df_for_fit))
+
+    # Phase 2 (parallel): die teuren Grid-Search-Fits über alle
+    # Elektroden-Paare laufen pro Chunk in einem Thread-Pool.
+    def _run_fit(job: tuple[int, pd.DataFrame]) -> tuple[int, int, pd.DataFrame]:
+        i, df_for_fit = job
         ranking = find_best_half_cell_match(
             df_for_fit,
             anodes_dir=anodes_dir,
             cathodes_dir=cathodes_dir,
             full_cell_name=f"chunk_{i:02d}",
         )
-        if ranking.empty:
-            continue
-        per_chunk_rankings.append(ranking.assign(chunk=i))
-        if verbose:
-            print(f"chunk {i:>2}: {len(df_for_fit):>3} Punkte → fit OK")
+        return i, len(df_for_fit), ranking
+
+    per_chunk_rankings: list[pd.DataFrame] = []
+    if fit_jobs:
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futures = {pool.submit(_run_fit, job): job[0] for job in fit_jobs}
+            for fut in as_completed(futures):
+                i, n_pts, ranking = fut.result()
+                if ranking.empty:
+                    if verbose:
+                        print(f"chunk {i:>2}: {n_pts:>3} Punkte → fit fehlgeschlagen")
+                    continue
+                per_chunk_rankings.append(ranking.assign(chunk=i))
+                if verbose:
+                    print(f"chunk {i:>2}: {n_pts:>3} Punkte → fit OK")
 
     if not per_chunk_rankings:
         return pd.DataFrame(columns=_CONSENSUS_COLUMNS)
