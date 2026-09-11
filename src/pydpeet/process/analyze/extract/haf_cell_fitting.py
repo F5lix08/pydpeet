@@ -6,8 +6,10 @@ from scipy.interpolate import CubicSpline as CSP
 from typing import List
 from pathlib import Path
 
-dir_anode = "/Users/felixweidlich/Documents/Uni/Abschluss/pyDePEET/pydpeet/src/pydpeet/res/fitting_data/halfCellAnodes"
-dir_cathode = "/Users/felixweidlich/Documents/Uni/Abschluss/pyDePEET/pydpeet/src/pydpeet/res/fitting_data/halfCellCathodes"
+
+_FITTING_DATA_DIR = Path(__file__).resolve().parents[3] / "res" / "fitting_data"
+dir_anode = str(_FITTING_DATA_DIR / "halfCellAnodes")
+dir_cathode = str(_FITTING_DATA_DIR / "halfCellCathodes")
 
 
 # ---------------------------------------------------------------------------
@@ -295,7 +297,11 @@ def plot_half_cell_match(full_df: pd.DataFrame,
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    df_full = pd.read_parquet("/Users/felixweidlich/Documents/Uni/Abschluss/pyDePEET/pydpeet/test/test_ba_felix/OVC_Checkup1_Data.parquet")
+    import sys
+
+    if len(sys.argv) != 2:
+        sys.exit("Aufruf: python haf_cell_fitting.py <Parquet-Datei mit iOCV-Daten>")
+    df_full = pd.read_parquet(sys.argv[1])
     df_full = df_full[df_full["iOCV_type"] == "Charge"]
 
     best_fit_df = get_best_half_cell_fit(df_full)
