@@ -1,26 +1,26 @@
 """
-Kapazitätsbestimmung per Kurvenform-Fit (statt 2-Punkt-Extrapolation).
+Capacity determination via curve-shape fit (instead of 2-point extrapolation).
 
-Die 2-Punkt-Methode (``capa_real_ocv.estimate_capacity_anchored_mAh``)
-bestimmt die Kapazität aus dem Ladungsdurchsatz zwischen zwei OCV-Ankern
-geteilt durch deren SOC-Differenz — die gesamte Aussage hängt also an zwei
-Spannungswerten und ist in flachen OCV-Bereichen entsprechend verrauscht.
+The 2-point method determines capacity from the charge throughput between
+two OCV anchors divided by their SOC difference — the whole result hinges
+on two voltage values and is correspondingly noisy in flat OCV regions.
 
-Dieses Modul nutzt stattdessen *alle* Anker und die Referenz-OCV-Kurve. Für
-jedes Paar aufeinanderfolgender Ruhepausen liefert die Kurve
+This module instead uses *all* anchors together with the reference OCV
+curve. For each pair of consecutive rest pauses, the curve gives
 
     ΔSOC_k = soc(U_{k+1}) − soc(U_k)
 
-und aus dem Strom das *lokale* Ladungsinkrement ΔQ_k = ∫ I dt zwischen den
-beiden Pausen. Die Kapazität ist die Steigung in ΔQ = C · ΔSOC, robust über
-alle Paare gefittet (Least-Squares durch den Ursprung, nach Hub-Größe
-gewichtet, Ausreißer-Paare per MAD verworfen).
+and the current gives the *local* charge increment ΔQ_k = ∫ I dt between
+the two pauses. Capacity is the slope in ΔQ = C · ΔSOC, fitted robustly
+across all pairs (least squares through the origin, weighted by swing
+size, outlier pairs dropped via MAD).
 
-Bewusst *lokale* Inkremente statt kumulativem Q über den ganzen Datensatz:
-Letzteres driftet bei vielen Lade-/Entladezyklen durch Stromoffset weg und
-lässt die Kapazität explodieren. So funktioniert die Methode für einzelne
-Sweeps (Labor-iOCV) wie für Mehrzyklen-Chunks (Felddaten). Die 2-Punkt-Methode
-ist der Spezialfall mit einem einzigen Anker-Paar.
+Deliberately *local* increments instead of cumulative Q over the whole
+dataset: the latter drifts away through current offset over many
+charge/discharge cycles and makes the capacity explode. This way the
+method works both for single sweeps (lab iOCV) and multi-cycle chunks
+(field data). The 2-point method is the special case with a single
+anchor pair.
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ import pandas as pd
 from scipy.interpolate import CubicSpline
 
 
-# --- Referenzkennlinie aus dem Halbzellen-Fit -------------------------------
+# --- Reference curve from the half-cell fit ---------------------------------
 
 _FIT_COLUMNS = ("Sol_Anode_Min", "Sol_Anode_Max",
                 "Sol_Cathode_Min", "Sol_Cathode_Max")
@@ -145,11 +145,11 @@ def soc_from_ocv(
     return np.interp(u_arr, u_grid, soc_grid)
 
 
-# --- Kurvenform-Kapazität ----------------------------------------------------
+# --- Curve-shape capacity ----------------------------------------------------
 
 
 def _cumulative_ah(t: np.ndarray, i: np.ndarray) -> np.ndarray:
-    """Kumulatives Ladungsintegral [Ah] an jedem Zeitpunkt (Trapezregel)."""
+    """Cumulative charge integral [Ah] at each time point (trapezoidal rule)."""
     dq = (t[1:] - t[:-1]) * (i[1:] + i[:-1]) / 2.0
     return np.concatenate([[0.0], np.cumsum(dq)]) / 3600.0
 
@@ -174,61 +174,61 @@ def estimate_capacity_curvefit_mAh(
     return_details: bool = False,
 ):
     """
-    Kapazität (mAh pro 100 % SOC) per kurvenbasiertem Multi-Punkt-Fit.
+    Capacity (mAh per 100% SOC) via curve-based multi-point fit.
 
-    Driftfrei: nutzt das Ladungsinkrement ``ΔQ`` *nur zwischen aufeinander-
-    folgenden Ruhepausen* (nicht kumulativ über den ganzen Datensatz, was bei
-    vielen Lade-/Entladezyklen durch Stromoffset wegdriften würde und die
-    Kapazität explodieren ließe). Für jedes Paar liefert die Referenzkurve
-    ``ΔSOC = soc(U_{k+1}) − soc(U_k)``; die Kapazität wird robust über alle
-    Paare gefittet (Least-Squares durch den Ursprung, nach Hub-Größe
-    gewichtet, Ausreißer-Paare per MAD verworfen). Funktioniert für einzelne
-    Sweeps (Labor-iOCV) wie für Mehrzyklen-Chunks (Felddaten).
+    Drift-free: uses the charge increment ``ΔQ`` *only between consecutive
+    rest pauses* (not cumulative over the whole dataset, which would drift
+    away through current offset over many charge/discharge cycles and make
+    the capacity explode). For each pair, the reference curve gives
+    ``ΔSOC = soc(U_{k+1}) − soc(U_k)``; capacity is fitted robustly across
+    all pairs (least squares through the origin, weighted by swing size,
+    outlier pairs dropped via MAD). Works both for single sweeps (lab iOCV)
+    and multi-cycle chunks (field data).
 
     Parameters
     ----------
     df : pd.DataFrame
-        Zeitreihe mit ``time_col`` und ``current_col``.
+        Time series with ``time_col`` and ``current_col``.
     anchors : pd.DataFrame
-        Ruhe-Anker mit ``t_start_s``, ``t_end_s`` und ``U`` (aus
+        Rest anchors with ``t_start_s``, ``t_end_s`` and ``U`` (from
         ``pauses_to_ocv_simple``).
     soc_ref, u_ref : np.ndarray
-        Referenz-OCV-Kurve SOC → U (z. B. aus ``build_full_cell_ocv_curve``).
+        Reference OCV curve SOC → U (e.g. from ``build_full_cell_ocv_curve``).
     time_col, current_col : str
-        Spaltennamen in ``df``.
+        Column names in ``df``.
     min_dsoc_pair : float, default 0.02
-        Mindest-SOC-Hub eines Paars; kleinere Hübe sind reines Rauschen.
+        Minimum SOC swing of a pair; smaller swings are pure noise.
     max_cycling_ratio : float or None, default 2.0
-        Paare verwerfen, bei denen ``∫|I| dt`` zwischen den Pausen
-        ``max_cycling_ratio · |∫ I dt|`` übersteigt (zu viel Hin-und-Her).
-        ``None`` deaktiviert den Filter.
+        Drop pairs where ``∫|I| dt`` between the pauses exceeds
+        ``max_cycling_ratio · |∫ I dt|`` (too much back-and-forth).
+        ``None`` disables the filter.
     min_pairs : int, default 3
-        Weniger gültige Paare → NaN.
+        Fewer valid pairs → NaN.
     return_details : bool, default False
-        Wenn True, dict mit ``capacity_mAh``, ``n_pairs``, ``soc_span``.
+        If True, returns a dict with ``capacity_mAh``, ``n_pairs``, ``soc_span``.
 
     Returns
     -------
-    float oder dict
-        Kapazität in mAh pro 100 % SOC, oder NaN/NaN-dict.
+    float or dict
+        Capacity in mAh per 100% SOC, or NaN/NaN-dict.
 
     Raises
     ------
     ValueError
-        Wenn eine erforderliche Spalte fehlt.
+        If a required column is missing.
     """
     for c in (time_col, current_col):
         if c not in df.columns:
-            raise ValueError(f"df fehlt Spalte {c!r}.")
+            raise ValueError(f"df is missing column {c!r}.")
     for c in ("t_start_s", "t_end_s", "U"):
         if c not in anchors.columns:
-            raise ValueError(f"anchors fehlt Spalte {c!r}.")
+            raise ValueError(f"anchors is missing column {c!r}.")
 
     a = anchors.dropna(subset=["t_start_s", "t_end_s", "U"]).sort_values("t_end_s").reset_index(drop=True)
     if len(a) < min_pairs + 1:
         return _nan_result(len(a), return_details)
 
-    # Referenzkurve nach SOC aufsteigend sortieren & deduplizieren
+    # Sort and deduplicate the reference curve by ascending SOC
     order = np.argsort(np.asarray(soc_ref, float))
     s_ref = np.asarray(soc_ref, float)[order]
     v_ref = np.asarray(u_ref, float)[order]
@@ -250,14 +250,14 @@ def estimate_capacity_curvefit_mAh(
     te = a["t_end_s"].to_numpy(float)
     ts = a["t_start_s"].to_numpy(float)
     dS, dQ = [], []
-    # Akkumulierende Paare: ueber aufeinanderfolgende Anker summieren, bis der
-    # SOC-Hub min_dsoc_pair erreicht ist. So fallen die vielen winzigen Stufen
-    # einer iOCV/FUDS-Sequenz nicht durchs Raster, und grosse Feld-Spruenge
-    # bilden je ein Paar. Die Spanne bleibt lokal (driftfrei).
+    # Accumulating pairs: sum over consecutive anchors until the SOC swing
+    # reaches min_dsoc_pair. This way the many tiny steps of an iOCV/FUDS
+    # sequence don't fall through the grid, and large field jumps each form
+    # their own pair. The span stays local (drift-free).
     ref = 0
     for k in range(1, len(a)):
         ds = float(soc_a[k] - soc_a[ref])
-        if abs(ds) < min_dsoc_pair:                       # noch nicht genug Hub
+        if abs(ds) < min_dsoc_pair:                       # not enough swing yet
             continue
         t_lo, t_hi = te[ref], ts[k]
         if t_hi > t_lo:
@@ -265,12 +265,12 @@ def estimate_capacity_curvefit_mAh(
             ok = True
             if max_cycling_ratio is not None and abs(dq) > 0:
                 dqa = float(np.interp(t_hi, t, qabs_cum) - np.interp(t_lo, t, qabs_cum))
-                if dqa > max_cycling_ratio * abs(dq):     # zu viel Hin-und-Her
+                if dqa > max_cycling_ratio * abs(dq):     # too much back-and-forth
                     ok = False
             if ok:
                 dS.append(abs(ds))
                 dQ.append(abs(dq))
-        ref = k                                           # neuen Referenz-Anker setzen
+        ref = k                                           # set new reference anchor
 
     if len(dS) < min_pairs:
         return _nan_result(len(dS), return_details)
@@ -280,8 +280,8 @@ def estimate_capacity_curvefit_mAh(
     ratio = dQ / dS
     med = float(np.median(ratio))
     mad = float(np.median(np.abs(ratio - med))) or 1e-12
-    m = np.abs(ratio - med) <= 3.0 * mad                  # Ausreißer-Paare verwerfen
-    C = float(np.sum(dS[m] * dQ[m]) / np.sum(dS[m] * dS[m]))   # Ah/100%SOC, hub-gewichtet
+    m = np.abs(ratio - med) <= 3.0 * mad                  # drop outlier pairs
+    C = float(np.sum(dS[m] * dQ[m]) / np.sum(dS[m] * dS[m]))   # Ah/100%SOC, swing-weighted
     cap = abs(C) * 1000.0
 
     if not return_details:
@@ -299,11 +299,11 @@ def estimate_capacity_curvefit_from_fit_mAh(
     **kwargs,
 ):
     """
-    Wie :func:`estimate_capacity_curvefit_mAh`, aber die Referenz-OCV-Kurve
-    wird aus einem Halbzellen-Fit gebaut (:func:`build_full_cell_ocv_curve`).
+    Like :func:`estimate_capacity_curvefit_mAh`, but the reference OCV curve
+    is built from a half-cell fit (:func:`build_full_cell_ocv_curve`).
 
-    Praktisch für die Felddaten-Pipeline: ``fit_result`` ist der per-Chunk-Fit,
-    ``anode_df``/``cathode_df`` die zugehörigen Referenz-Elektroden.
+    Convenient for the field-data pipeline: ``fit_result`` is the per-chunk
+    fit, ``anode_df``/``cathode_df`` the corresponding reference electrodes.
     """
     soc_ref, u_ref = build_full_cell_ocv_curve(fit_result, anode_df, cathode_df)
     return estimate_capacity_curvefit_mAh(df, anchors, soc_ref, u_ref, **kwargs)

@@ -1,36 +1,36 @@
 """
-Kapazität und LLI/LAM über den (gemeinsam) abgedeckten SOC-Bereich.
+Capacity and LLI/LAM over the (jointly) covered SOC range.
 
-Die bestehenden Kapazitätsmethoden (``capa_real_ocv``, ``capa_curvefit``) geben
-die Kapazität *pro 100 % SOC* zurück: Sie teilen die lokal gemessene Ladung
-durch die durchfahrene SOC-Spanne und extrapolieren damit implizit auf
-SOC 0→1. Bei FUDS-/Felddaten wird SOC 0→1 aber nicht durchfahren; Referenz- und
-gealterter Zustand decken *unterschiedliche* SOC-Bereiche ab und extrapolieren
-dort verschieden — das erzeugt einen Bias in SOH, LLI und LAM.
+The existing capacity methods (``capa_curvefit``) return capacity
+*per 100% SOC*: they divide the locally measured charge by the SOC span
+covered and thereby implicitly extrapolate to SOC 0→1. For FUDS/field data,
+however, SOC 0→1 is not covered; the reference and aged states cover
+*different* SOC ranges and extrapolate differently there — this creates a
+bias in SOH, LLI and LAM.
 
-Dieses Modul misst die Kapazität stattdessen nur über den **gemeinsam
-abgedeckten** SOC-Bereich beider Zustände. Beide werden so auf demselben
-SOC-Fenster gemessen; die differenzielle Extrapolation entfällt. Bei
-identischer voller Abdeckung (iOCV, SOC 0→1) fällt das Fenster mit dem vollen
-Bereich zusammen und die Werte entsprechen den bisherigen.
+This module instead measures capacity only over the **jointly covered**
+SOC range of both states. Both are then measured on the same SOC window;
+the differential extrapolation is eliminated. With identical full coverage
+(iOCV, SOC 0→1) the window coincides with the full range and the values
+match the previous ones.
 
-Die Kapazität wird weiterhin *pro 100 % SOC* ausgedrückt — sie wird lediglich
-aus den Ankern *innerhalb* des gemeinsamen Fensters bestimmt, statt aus dem
-gesamten (unterschiedlich) befahrenen Bereich.
+Capacity is still expressed *per 100% SOC* — it is just determined from
+the anchors *within* the joint window, instead of from the entire
+(differently) covered range.
 
-Grenze / Einordnung
--------------------
-Die Elektroden-Aufteilung ``C_Anode = C_full / Δa`` in
-:func:`calculate_electrode_quantities` nutzt weiterhin das Stöchiometrie-Fenster
-``Δa`` des Halbzellen-Fits. Auf teilweise abgedeckten Daten ist ``Δa`` des
-linearen Modells nur schwach identifizierbar. Dieses Modul behebt den
-**Kapazitäts-Extrapolationsbias**, *nicht* die ``Δa``-Identifizierbarkeitsgrenze —
-LAM bleibt entsprechend unsicherer als SOH/LLI.
+Scope / limitations
+--------------------
+The electrode split ``C_Anode = C_full / Δa`` in
+:func:`calculate_electrode_quantities` still uses the stoichiometry window
+``Δa`` of the half-cell fit. On partially covered data, ``Δa`` of the
+linear model is only weakly identifiable. This module fixes the
+**capacity extrapolation bias**, *not* the ``Δa`` identifiability limit —
+LAM therefore remains less certain than SOH/LLI.
 
-Baut ausschließlich auf bestehenden Funktionen auf
+Built entirely on existing functions
 (:func:`build_full_cell_ocv_curve`, :func:`soc_from_ocv`,
 :func:`estimate_capacity_curvefit_mAh`, :func:`calculate_electrode_quantities`,
-:func:`calculate_lli_lam`) und ändert keine anderen Module.
+:func:`calculate_lli_lam`) and does not change any other module.
 """
 
 from __future__ import annotations
@@ -50,10 +50,10 @@ _STATE_KEYS = ("df", "anchors", "fit_result", "anode_df", "cathode_df")
 
 
 def _sorted_ref(soc_ref: np.ndarray, u_ref: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Referenzkurve nach SOC aufsteigend sortieren & deduplizieren.
+    """Sort and deduplicate the reference curve by ascending SOC.
 
-    Gleiche Aufbereitung wie intern in :func:`estimate_capacity_curvefit_mAh`,
-    damit die hier abgeleiteten SOC-Werte konsistent sind.
+    Same preparation as used internally in :func:`estimate_capacity_curvefit_mAh`,
+    so the SOC values derived here stay consistent.
     """
     order = np.argsort(np.asarray(soc_ref, dtype=float))
     s = np.asarray(soc_ref, dtype=float)[order]
@@ -70,35 +70,34 @@ def covered_soc_range(
     voltage_col: str = "U",
 ) -> tuple[float, float]:
     """
-    Abgedeckter SOC-Bereich ``[s_lo, s_hi]`` der Anker eines Zustands.
+    Covered SOC range ``[s_lo, s_hi]`` of a state's anchors.
 
-    Für jede Anker-Ruhespannung wird der SOC über die (invertierte)
-    Referenzkurve bestimmt; zurückgegeben werden das Minimum und Maximum.
+    For each anchor rest voltage, SOC is determined via the (inverted)
+    reference curve; the minimum and maximum are returned.
 
     Parameters
     ----------
     anchors : pd.DataFrame
-        Ruhe-Anker mit der Spannungsspalte ``voltage_col`` (Default ``"U"``,
-        aus :func:`pauses_to_ocv_simple`).
+        Rest anchors with the voltage column ``voltage_col`` (default
+        ``"U"``, from :func:`pauses_to_ocv_simple`).
     soc_ref, u_ref : np.ndarray
-        Referenz-OCV-Kurve SOC → U (z. B. aus
+        Reference OCV curve SOC → U (e.g. from
         :func:`build_full_cell_ocv_curve`).
     voltage_col : str, default "U"
-        Name der Ruhespannungsspalte in ``anchors``.
+        Name of the rest-voltage column in ``anchors``.
 
     Returns
     -------
     (float, float)
-        ``(s_lo, s_hi)``, oder ``(nan, nan)`` bei weniger als zwei gültigen
-        Ankern.
+        ``(s_lo, s_hi)``, or ``(nan, nan)`` if fewer than two valid anchors.
 
     Raises
     ------
     ValueError
-        Wenn ``voltage_col`` fehlt.
+        If ``voltage_col`` is missing.
     """
     if voltage_col not in anchors.columns:
-        raise ValueError(f"anchors fehlt Spalte {voltage_col!r}.")
+        raise ValueError(f"anchors is missing column {voltage_col!r}.")
     u = anchors[voltage_col].dropna().to_numpy(dtype=float)
     if len(u) < 2:
         return (float("nan"), float("nan"))
@@ -124,44 +123,44 @@ def estimate_capacity_covered_mAh(
     return_details: bool = False,
 ):
     """
-    Kapazität (mAh pro 100 % SOC), gemessen nur über ein SOC-Fenster.
+    Capacity (mAh per 100% SOC), measured only over an SOC window.
 
-    Nur Anker, deren (aus der Referenzkurve abgelesener) SOC in
-    ``soc_window`` liegt, gehen in den Kurvenform-Fit ein. Damit wird die
-    Kapazität lokal über den gewünschten SOC-Bereich bestimmt, statt über den
-    gesamten befahrenen Bereich extrapoliert. Die eigentliche Kapazitäts-
-    berechnung erledigt :func:`estimate_capacity_curvefit_mAh`.
+    Only anchors whose SOC (read off the reference curve) falls in
+    ``soc_window`` enter the curve-shape fit. This determines capacity
+    locally over the desired SOC range, instead of extrapolating over the
+    entire covered range. The actual capacity calculation is done by
+    :func:`estimate_capacity_curvefit_mAh`.
 
     Parameters
     ----------
     df : pd.DataFrame
-        Zeitreihe mit ``time_col`` und ``current_col``.
+        Time series with ``time_col`` and ``current_col``.
     anchors : pd.DataFrame
-        Ruhe-Anker mit ``t_start_s``, ``t_end_s`` und ``U``.
+        Rest anchors with ``t_start_s``, ``t_end_s`` and ``U``.
     soc_ref, u_ref : np.ndarray
-        Referenz-OCV-Kurve SOC → U.
+        Reference OCV curve SOC → U.
     soc_window : (float, float) or None, default None
-        ``(s_lo, s_hi)`` — nur Anker mit SOC in diesem Fenster verwenden.
-        ``None`` verwendet den vollen befahrenen Bereich (dann identisch zu
+        ``(s_lo, s_hi)`` — only use anchors with SOC in this window.
+        ``None`` uses the full covered range (then identical to
         :func:`estimate_capacity_curvefit_mAh`).
     time_col, current_col, min_dsoc_pair, max_cycling_ratio, min_pairs,
     return_details
-        Wie in :func:`estimate_capacity_curvefit_mAh`.
+        As in :func:`estimate_capacity_curvefit_mAh`.
 
     Returns
     -------
-    float oder dict
-        Kapazität in mAh pro 100 % SOC (bzw. NaN/NaN-dict), analog zu
+    float or dict
+        Capacity in mAh per 100% SOC (or NaN/NaN-dict), analogous to
         :func:`estimate_capacity_curvefit_mAh`.
 
     Raises
     ------
     ValueError
-        Wenn eine erforderliche Spalte fehlt.
+        If a required column is missing.
     """
     for c in ("t_start_s", "t_end_s", "U"):
         if c not in anchors.columns:
-            raise ValueError(f"anchors fehlt Spalte {c!r}.")
+            raise ValueError(f"anchors is missing column {c!r}.")
 
     if soc_window is not None:
         s_lo, s_hi = float(soc_window[0]), float(soc_window[1])
@@ -181,10 +180,10 @@ def estimate_capacity_covered_mAh(
 
 
 def _prepare(state: dict, name: str) -> dict:
-    """Referenzkurve und abgedeckten SOC-Bereich eines Zustands ableiten."""
+    """Derive the reference curve and covered SOC range of a state."""
     for k in _STATE_KEYS:
         if k not in state:
-            raise ValueError(f"Zustand {name!r} fehlt Key {k!r} (erwartet: {list(_STATE_KEYS)}).")
+            raise ValueError(f"State {name!r} is missing key {k!r} (expected: {list(_STATE_KEYS)}).")
     soc_ref, u_ref = build_full_cell_ocv_curve(
         state["fit_result"], state["anode_df"], state["cathode_df"],
     )
@@ -201,43 +200,43 @@ def lli_lam_covered(
     min_pairs: int = 3,
 ) -> pd.DataFrame:
     """
-    SOH / LLI / LAM zwischen zwei Zuständen, Kapazität nur über den
-    **gemeinsam abgedeckten** SOC-Bereich gemessen.
+    SOH / LLI / LAM between two states, capacity measured only over the
+    **jointly covered** SOC range.
 
-    Ablauf: Für jeden Zustand wird die Referenz-OCV-Kurve aus dem Halbzellen-Fit
-    gebaut und der befahrene SOC-Bereich bestimmt. Das gemeinsame Fenster ist
-    deren Schnittmenge. In diesem Fenster wird für beide Zustände die Kapazität
-    (pro 100 % SOC) via :func:`estimate_capacity_covered_mAh` gemessen; daraus
-    folgen über :func:`calculate_electrode_quantities` und
-    :func:`calculate_lli_lam` die Degradationsgrößen.
+    Procedure: for each state, the reference OCV curve is built from the
+    half-cell fit and the covered SOC range is determined. The joint window
+    is their intersection. Within this window, capacity (per 100% SOC) is
+    measured for both states via :func:`estimate_capacity_covered_mAh`;
+    from that, :func:`calculate_electrode_quantities` and
+    :func:`calculate_lli_lam` yield the degradation quantities.
 
     Parameters
     ----------
     ref, aged : dict
-        Je ein Zustand (Referenz = frisch, aged = gealtert) mit den Keys
+        One state each (reference = fresh, aged = aged) with the keys
         ``"df"``, ``"anchors"``, ``"fit_result"``, ``"anode_df"``,
-        ``"cathode_df"`` — wie sie auch die bestehende Pipeline erzeugt.
+        ``"cathode_df"`` — as produced by the existing pipeline.
     min_dsoc_pair, max_cycling_ratio, min_pairs
-        An :func:`estimate_capacity_covered_mAh` durchgereicht.
+        Forwarded to :func:`estimate_capacity_covered_mAh`.
 
     Returns
     -------
     pd.DataFrame
-        Das Ergebnis von :func:`calculate_lli_lam`, ergänzt um die Spalten
-        ``SOC_window_lo``, ``SOC_window_hi`` (gemeinsames Fenster) sowie
-        ``SOC_covered_ref_lo/hi`` und ``SOC_covered_aged_lo/hi``. Leerer
-        DataFrame, wenn kein verwertbares gemeinsames Fenster existiert oder
-        eine Kapazität nicht bestimmbar ist.
+        The result of :func:`calculate_lli_lam`, extended with the columns
+        ``SOC_window_lo``, ``SOC_window_hi`` (joint window) as well as
+        ``SOC_covered_ref_lo/hi`` and ``SOC_covered_aged_lo/hi``. Empty
+        DataFrame if no usable joint window exists or a capacity cannot be
+        determined.
 
     Raises
     ------
     ValueError
-        Wenn einem Zustand ein erforderlicher Key fehlt.
+        If a state is missing a required key.
     """
     r = _prepare(ref, "ref")
     a = _prepare(aged, "aged")
 
-    # Gemeinsames SOC-Fenster = Schnittmenge der befahrenen Bereiche
+    # Joint SOC window = intersection of the covered ranges
     s_lo = max(r["lo"], a["lo"])
     s_hi = min(r["hi"], a["hi"])
     if not (np.isfinite(s_lo) and np.isfinite(s_hi)) or (s_hi - s_lo) < min_dsoc_pair:

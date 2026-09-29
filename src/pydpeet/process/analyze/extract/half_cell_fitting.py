@@ -160,7 +160,7 @@ def find_best_half_cell_match(full_df: pd.DataFrame,
     cathode_files = list(Path(cathodes_dir).glob("*.csv")) + list(Path(cathodes_dir).glob("*.txt"))
 
     if not anode_files or not cathode_files:
-        print("Warnung: Es konnten keine Anoden- oder Kathoden-Dateien gefunden werden.")
+        print("Warning: no anode or cathode files could be found.")
         return pd.DataFrame()
 
     def read_data(filepath):
@@ -170,7 +170,7 @@ def find_best_half_cell_match(full_df: pd.DataFrame,
                 df = pd.read_csv(filepath, sep=None, engine='python')
             return df
         except Exception as e:
-            print(f"Fehler beim Einlesen von {filepath}: {e}")
+            print(f"Error reading {filepath}: {e}")
             return None
 
     anodes_data = {f.name: read_data(f) for f in anode_files}

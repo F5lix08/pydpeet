@@ -6,8 +6,8 @@ the lab tester output. This module is the one-stop converter that turns a
 raw field-data parquet (signals from CAN bus: pack voltage, cell voltage
 mean, pack current, SOC, temperatures, …) into a DataFrame that has the
 same column layout as a Neware tester export, so the existing extraction
-pipeline (`extract_pauses`, `extract_fuds`, `extract_relaxation_anchors`,
-`pauses_to_ocv`, …) can be reused unchanged.
+pipeline (`extract_pauses`, `extract_fuds`, `pauses_to_ocv_simple`,
+`extract_ocv_iocv`, …) can be reused unchanged.
 
 Target schema
 -------------

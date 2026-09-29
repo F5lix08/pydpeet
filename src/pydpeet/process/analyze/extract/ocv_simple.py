@@ -3,22 +3,21 @@ Simple OCV extraction from a list of rest pauses — no relaxation fit.
 
 The OCV anchor for each pause is taken as the **last measured sample** of
 that pause: ``U_ocv = Voltage[V].iloc[-1]`` paired with ``SOC.iloc[-1]``.
-This is the cheap baseline against which the relaxation-extrapolation
-approach in
-:mod:`pydpeet.process.analyze.extract.pause_to_ocv` should be compared.
+This is the cheap baseline against which a relaxation-extrapolation
+approach (fitting the voltage decay instead of just taking the endpoint)
+would be compared, if one is added later.
 
 For long laboratory rest pauses (≥ 30 min) the endpoint is practically
 identical to the true OCV — the simple method is then sufficient. For
 short pauses (seconds to minutes, as in FUDS or field data) the endpoint
 is still relaxing and will bias subsequent half-cell fits; that is exactly
-the case the relaxation extrapolation was built for.
+the case a relaxation extrapolation would need to correct for.
 
-The output schema matches
-:func:`pydpeet.process.analyze.extract.pause_to_ocv.pauses_to_ocv` and
-:func:`pydpeet.process.analyze.extract.relaxation.extract_relaxation_anchors`,
-so the downstream pipeline (weighting, half-cell fit) does not need to
-know which anchor source was used. Columns that have no meaning for the
-endpoint method (``U_inf_std``, ``rmse``) are set to NaN.
+The output schema is kept generic enough that a future relaxation-based
+anchor source could return the same columns and slot into the downstream
+pipeline (weighting, half-cell fit) without it needing to know which
+anchor source was used. Columns that have no meaning for the endpoint
+method (``U_inf_std``, ``rmse``) are set to NaN.
 """
 
 from __future__ import annotations

@@ -156,9 +156,9 @@ def fit_real_data(
 
     chunks = split_by_time_window(df, window_days=window_days)
 
-    # Phase 1 (sequenziell, billig): Pausen + OCV-Anchors pro Chunk, dabei
-    # die Skip-Entscheidungen in stabiler Reihenfolge loggen. Es bleibt eine
-    # Liste der Chunks übrig, die in Phase 2 tatsächlich gefittet werden.
+    # Phase 1 (sequential, cheap): pauses + OCV anchors per chunk, logging
+    # the skip decisions in stable order along the way. What remains is a
+    # list of chunks that are actually fit in phase 2.
     fit_jobs: list[tuple[int, pd.DataFrame]] = []
     for i, chunk in enumerate(chunks):
         pauses = extract_pauses(
@@ -168,7 +168,7 @@ def fit_real_data(
         )
         if not pauses:
             if verbose:
-                print(f"chunk {i:>2}: keine Pausen ≥ {min_pause_duration_s:.0f} s")
+                print(f"chunk {i:>2}: no pauses ≥ {min_pause_duration_s:.0f} s")
             continue
 
         anchors = pauses_to_ocv_simple(pauses)
@@ -182,13 +182,13 @@ def fit_real_data(
         )
         if len(df_for_fit) < min_points:
             if verbose:
-                print(f"chunk {i:>2}: nur {len(df_for_fit)} OCV-Punkte → übersprungen")
+                print(f"chunk {i:>2}: only {len(df_for_fit)} OCV points → skipped")
             continue
 
         fit_jobs.append((i, df_for_fit))
 
-    # Phase 2 (parallel): die teuren Grid-Search-Fits über alle
-    # Elektroden-Paare laufen pro Chunk in einem Thread-Pool.
+    # Phase 2 (parallel): the expensive grid-search fits over all
+    # electrode pairs run per chunk in a thread pool.
     def _run_fit(job: tuple[int, pd.DataFrame]) -> tuple[int, int, pd.DataFrame]:
         i, df_for_fit = job
         ranking = find_best_half_cell_match(
@@ -207,11 +207,11 @@ def fit_real_data(
                 i, n_pts, ranking = fut.result()
                 if ranking.empty:
                     if verbose:
-                        print(f"chunk {i:>2}: {n_pts:>3} Punkte → fit fehlgeschlagen")
+                        print(f"chunk {i:>2}: {n_pts:>3} points → fit failed")
                     continue
                 per_chunk_rankings.append(ranking.assign(chunk=i))
                 if verbose:
-                    print(f"chunk {i:>2}: {n_pts:>3} Punkte → fit OK")
+                    print(f"chunk {i:>2}: {n_pts:>3} points → fit OK")
 
     if not per_chunk_rankings:
         return pd.DataFrame(columns=_CONSENSUS_COLUMNS)
@@ -224,9 +224,9 @@ def fit_real_data(
         good = chunk_best[chunk_best <= max_rmse_mv].index
         bad = chunk_best[chunk_best > max_rmse_mv]
         if verbose and len(bad):
-            print(f"\nVerworfen (bester Fit > {max_rmse_mv:.0f} mV):")
+            print(f"\nDropped (best fit > {max_rmse_mv:.0f} mV):")
             for c, r in bad.items():
-                print(f"  chunk {c:>2}: bester RMSE {r:.1f} mV")
+                print(f"  chunk {c:>2}: best RMSE {r:.1f} mV")
         all_pair_fits = all_pair_fits[all_pair_fits["chunk"].isin(good)].reset_index(drop=True)
 
     if all_pair_fits.empty:
@@ -265,7 +265,7 @@ def fit_real_data(
 
     if verbose and not consensus.empty:
         top = consensus.iloc[0]
-        print(f"\nGewähltes Konsens-Paar: {top['Anode']}  +  {top['Cathode']}")
+        print(f"\nChosen consensus pair: {top['Anode']}  +  {top['Cathode']}")
 
     return consensus[_CONSENSUS_COLUMNS]
 
@@ -288,79 +288,79 @@ def evaluate_chunks(
     verbose: bool = True,
 ) -> dict:
     """
-    Per-Chunk-Auswertung gegen ein festes Elektrodenpaar: Fit, gemeinsames
-    SOC-Fenster, Kurvenform-Kapazität und Plausibilitätsfilter.
+    Per-chunk evaluation against a fixed electrode pair: fit, joint SOC
+    window, curve-shape capacity and plausibility filter.
 
-    Läuft in drei Pässen über die Chunks (typisch der Output von
-    :func:`split_by_time_window`, Elektrodenpaar typisch das Konsens-Paar
-    aus :func:`fit_real_data`):
+    Runs in three passes over the chunks (typically the output of
+    :func:`split_by_time_window`, electrode pair typically the consensus
+    pair from :func:`fit_real_data`):
 
-    1. **Fit + Abdeckung** — Pausen extrahieren, Anker bilden, gegen das
-       feste Paar fitten (Gate ``max_rmse_mv``), Referenzkennlinie bauen
-       und den abgedeckten SOC-Bereich bestimmen.
-    2. **Kapazität im gemeinsamen Fenster** — Schnittmenge der abgedeckten
-       Bereiche aller Chunks mit Breite >= ``soc_coverage_min`` (kollabiert
-       sonst durch einzelne schmale Chunks); je Chunk
-       :func:`estimate_capacity_covered_mAh` in diesem Fenster sowie die
-       Elektrodengrößen via :func:`calculate_electrode_quantities`.
-    3. **Plausibilität** — Kapazitäts-Ausreißer per MAD-Kriterium
-       (``|Cap - Median| > cap_mad_k * MAD``) aussortieren.
+    1. **Fit + coverage** — extract pauses, build anchors, fit against the
+       fixed pair (gate ``max_rmse_mv``), build the reference curve, and
+       determine the covered SOC range.
+    2. **Capacity in the joint window** — intersection of the covered
+       ranges of all chunks with width >= ``soc_coverage_min`` (otherwise
+       collapses due to individual narrow chunks); per chunk,
+       :func:`estimate_capacity_covered_mAh` in this window as well as the
+       electrode quantities via :func:`calculate_electrode_quantities`.
+    3. **Plausibility** — filter out capacity outliers via the MAD
+       criterion (``|Cap - Median| > cap_mad_k * MAD``).
 
     Parameters
     ----------
     chunks : list of pd.DataFrame
-        Zeitfenster-Chunks mit ``Test_Time[s]``, ``Current[A]``,
-        ``Voltage[V]`` und ``SOC``.
+        Time-window chunks with ``Test_Time[s]``, ``Current[A]``,
+        ``Voltage[V]`` and ``SOC``.
     anode_name, cathode_name : str
-        Dateinamen der Referenz-Halbzellen (z. B. aus der Konsens-Tabelle
-        von :func:`fit_real_data`).
+        File names of the reference half-cells (e.g. from the consensus
+        table of :func:`fit_real_data`).
     anodes_dir, cathodes_dir : str
-        Verzeichnisse der Halbzellen-Referenzen.
+        Directories of the half-cell references.
     min_pause_duration_s : float, default 600
-        Mindestdauer einer Ruhepause für einen OCV-Anker.
+        Minimum duration of a rest pause for an OCV anchor.
     min_points : int, default 20
-        Chunks mit weniger Ankern werden übersprungen.
+        Chunks with fewer anchors are skipped.
     max_rmse_mv : float, default 50
-        Fit-Qualitätsgate je Chunk.
+        Fit quality gate per chunk.
     min_dsoc_pair, max_cycling_ratio
-        Durchgereicht an :func:`estimate_capacity_covered_mAh`.
+        Forwarded to :func:`estimate_capacity_covered_mAh`.
     soc_coverage_min : float, default 0.60
-        Mindestbreite des abgedeckten SOC-Bereichs, damit ein Chunk in die
-        Bildung des gemeinsamen Fensters eingeht. Bleiben weniger als drei
-        Chunks übrig, wird der Filter für den Lauf deaktiviert.
+        Minimum width of the covered SOC range for a chunk to contribute
+        to building the joint window. If fewer than three chunks remain,
+        the filter is disabled for this run.
     cap_mad_k : float, default 3.0
-        Stringenz des Kapazitäts-Ausreißerfilters (Pass 3).
+        Strictness of the capacity outlier filter (pass 3).
     n_ref_chunks : int, default 3
-        Anzahl der ersten plausiblen Chunks, deren Median die
-        SOH-Referenzkapazität bildet.
+        Number of the first plausible chunks whose median forms the SOH
+        reference capacity.
     verbose : bool, default True
-        Verwurfs- und Zwischenergebnisse ausgeben.
+        Print rejection reasons and intermediate results.
 
     Returns
     -------
     dict
-        ``chunk_data``      — je Chunk-Index: Rohdaten, Anker, Fit,
-        Referenzkennlinie (``soc_ref``/``u_ref``) und Abdeckung
-        (``lo``/``hi``) aus Pass 1;
-        ``global_window``   — gemeinsames SOC-Fenster ``(lo, hi)``;
-        ``window_ids``      — Chunks, die das Fenster bilden;
+        ``chunk_data``      — per chunk index: raw data, anchors, fit,
+        reference curve (``soc_ref``/``u_ref``) and coverage
+        (``lo``/``hi``) from pass 1;
+        ``global_window``   — joint SOC window ``(lo, hi)``;
+        ``window_ids``      — chunks that form the window;
         ``cap_per_chunk_mAh``, ``fits_per_chunk``,
-        ``quantities_per_chunk`` — Ergebnisse aus Pass 2;
-        ``valid_ids``       — Chunks mit gültiger Kapazität;
-        ``soh_ids``         — Chunks nach dem Cap-MAD-Filter (Pass 3);
-        ``cap_ref_mAh``     — SOH-Referenzkapazität;
-        ``overview``        — Übersichtstabelle (eine Zeile je Chunk).
+        ``quantities_per_chunk`` — results from pass 2;
+        ``valid_ids``       — chunks with a valid capacity;
+        ``soh_ids``         — chunks after the cap-MAD filter (pass 3);
+        ``cap_ref_mAh``     — SOH reference capacity;
+        ``overview``        — overview table (one row per chunk).
 
     Raises
     ------
     RuntimeError
-        Wenn kein Chunk Pass 1 übersteht, keine gültige Kapazität
-        bestimmt werden kann oder kein Chunk den Cap-MAD-Filter passiert.
+        If no chunk survives pass 1, no valid capacity can be determined,
+        or no chunk passes the cap-MAD filter.
     """
     anode_df = pd.read_csv(f"{anodes_dir}/{anode_name}")
     cathode_df = pd.read_csv(f"{cathodes_dir}/{cathode_name}")
 
-    # --- Pass 1: Fit + abgedeckter SOC-Bereich je Chunk ---
+    # --- Pass 1: fit + covered SOC range per chunk ---
     chunk_data: dict[int, dict] = {}
     for i, chunk in enumerate(chunks):
         pauses = extract_pauses(chunk, min_pause_duration_s=min_pause_duration_s)
@@ -390,32 +390,32 @@ def evaluate_chunks(
 
     if not chunk_data:
         raise RuntimeError(
-            "Kein Chunk hat Pass 1 überstanden — "
-            "min_pause_duration_s / min_points / max_rmse_mv prüfen."
+            "No chunk survived pass 1 — "
+            "check min_pause_duration_s / min_points / max_rmse_mv."
         )
 
-    # Coverage-Filter VOR der Fensterbildung (ein schmaler Chunk kollabiert
-    # sonst das Fenster).
+    # Coverage filter BEFORE building the window (a narrow chunk would
+    # otherwise collapse the window).
     window_ids = sorted(i for i, d in chunk_data.items()
                         if (d["hi"] - d["lo"]) >= soc_coverage_min)
     dropped_cov = sorted(set(chunk_data) - set(window_ids))
     if verbose and dropped_cov:
-        print(f"Coverage-Filter (Breite < {soc_coverage_min:.2f}): "
-              f"Chunks {dropped_cov} ausgeschlossen.")
+        print(f"Coverage filter (width < {soc_coverage_min:.2f}): "
+              f"chunks {dropped_cov} excluded.")
     if len(window_ids) < 3:
         window_ids = sorted(chunk_data)
         if verbose:
-            print(f"WARNUNG: weniger als 3 Chunks über soc_coverage_min "
-                  f"— Coverage-Filter für diesen Lauf deaktiviert.")
+            print(f"WARNING: fewer than 3 chunks above soc_coverage_min "
+                  f"— coverage filter disabled for this run.")
 
     global_window = (max(chunk_data[i]["lo"] for i in window_ids),
                      min(chunk_data[i]["hi"] for i in window_ids))
     if verbose:
-        print(f"Gemeinsames SOC-Fenster über {len(window_ids)} Chunks: "
+        print(f"Joint SOC window over {len(window_ids)} chunks: "
               f"{global_window[0]:.3f} .. {global_window[1]:.3f}  "
-              f"(Breite {global_window[1] - global_window[0]:.3f})")
+              f"(width {global_window[1] - global_window[0]:.3f})")
 
-    # --- Pass 2: Kapazität je Chunk im gemeinsamen Fenster ---
+    # --- Pass 2: capacity per chunk in the joint window ---
     cap_per_chunk_mAh: dict[int, float] = {}
     quantities_per_chunk: dict[int, pd.DataFrame] = {}
     fits_per_chunk: dict[int, pd.DataFrame] = {}
@@ -436,13 +436,13 @@ def evaluate_chunks(
 
     valid_ids = sorted(cap_per_chunk_mAh.keys())
     if verbose:
-        print(f"{len(valid_ids)} Chunks mit gültiger Kapazität: {valid_ids}")
+        print(f"{len(valid_ids)} chunks with a valid capacity: {valid_ids}")
     if not valid_ids:
         raise RuntimeError(
-            "Keine gültige Kapazität — min_dsoc_pair / max_cycling_ratio prüfen."
+            "No valid capacity — check min_dsoc_pair / max_cycling_ratio."
         )
 
-    # --- Pass 3: Plausibilitätsfilter (Kapazitäts-Ausreißer per MAD) ---
+    # --- Pass 3: plausibility filter (capacity outliers via MAD) ---
     caps = np.array([cap_per_chunk_mAh[i] for i in valid_ids])
     cap_med = float(np.median(caps))
     cap_mad = float(np.median(np.abs(caps - cap_med)))
@@ -454,17 +454,17 @@ def evaluate_chunks(
 
     soh_ids = [i for i in valid_ids if cap_ok[i]]
     if verbose:
-        print(f"Cap-Ausreißer (> {cap_mad_k:.0f}*MAD um Median {cap_med/1000:.1f} Ah): "
+        print(f"Cap outliers (> {cap_mad_k:.0f}*MAD around median {cap_med/1000:.1f} Ah): "
               f"{sorted(set(valid_ids) - set(soh_ids))}")
-        print(f"-> plausible Chunks: {len(soh_ids)} {soh_ids}")
+        print(f"-> plausible chunks: {len(soh_ids)} {soh_ids}")
     if not soh_ids:
-        raise RuntimeError("Kein Chunk übersteht den Cap-MAD-Filter — Daten/Filter prüfen.")
+        raise RuntimeError("No chunk passes the cap-MAD filter — check data/filters.")
 
-    # Robuste SOH-Referenz: Median der ersten plausiblen Chunks statt Chunk 0.
+    # Robust SOH reference: median of the first plausible chunks instead of chunk 0.
     cap_ref_mAh = float(np.median([cap_per_chunk_mAh[i] for i in soh_ids[:n_ref_chunks]]))
     if verbose:
-        print(f"SOH-Referenzkapazität (Median der ersten "
-              f"{min(n_ref_chunks, len(soh_ids))} plausiblen Chunks): {cap_ref_mAh/1000:.1f} Ah")
+        print(f"SOH reference capacity (median of the first "
+              f"{min(n_ref_chunks, len(soh_ids))} plausible chunks): {cap_ref_mAh/1000:.1f} Ah")
 
     overview = pd.DataFrame({
         "chunk":         valid_ids,
@@ -473,7 +473,7 @@ def evaluate_chunks(
         "SOH_pct":       [cap_per_chunk_mAh[i] / cap_ref_mAh * 100 for i in valid_ids],
         "C_Anode_Ah":    [quantities_per_chunk[i]["C_Anode_mAh"].iloc[0] / 1000 for i in valid_ids],
         "C_Cathode_Ah":  [quantities_per_chunk[i]["C_Cathode_mAh"].iloc[0] / 1000 for i in valid_ids],
-        "Cap_plausibel": [i in set(soh_ids) for i in valid_ids],
+        "Cap_plausible": [i in set(soh_ids) for i in valid_ids],
     }).round(2)
 
     return {

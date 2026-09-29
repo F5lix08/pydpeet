@@ -7,12 +7,8 @@ module provides one function that returns every pause in a test
 DataFrame whose duration is at or above a user-specified minimum.
 
 Typical use case: isolate the rest phases inside a FUDS, iOCV or HPPC
-block so they can be inspected individually, plotted or fed one-by-one
-into the relaxation extrapolation
-(:func:`pydpeet.process.analyze.extract.relaxation.extrapolate_relaxation_ocv`).
-For the combined ‘‘find pauses + fit each'' workflow,
-:func:`pydpeet.process.analyze.extract.relaxation.extract_relaxation_anchors`
-is the higher-level shortcut.
+block so they can be inspected individually, plotted, or turned into OCV
+anchors (see :mod:`pydpeet.process.analyze.extract.ocv_simple`).
 
 Stand-alone: no dependency on the PyDPEET step-analyzer. Only the
 columns ``Test_Time[s]`` and ``Current[A]`` are required; all other
