@@ -38,13 +38,13 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from pydpeet.process.analyze.extract.capa_curvefit import (
+from pydpeet.process.analyze.extract.capacity.capa_curvefit import (
     build_full_cell_ocv_curve,
     soc_from_ocv,
     estimate_capacity_curvefit_mAh,
 )
-from pydpeet.process.analyze.extract.lithium_amount import calculate_electrode_quantities
-from pydpeet.process.analyze.extract.lli_lam import calculate_lli_lam
+from pydpeet.process.analyze.extract.degradation.lithium_amount import calculate_electrode_quantities
+from pydpeet.process.analyze.extract.degradation.lli_lam import calculate_lli_lam
 
 _STATE_KEYS = ("df", "anchors", "fit_result", "anode_df", "cathode_df")
 

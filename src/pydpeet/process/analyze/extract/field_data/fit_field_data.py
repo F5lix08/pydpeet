@@ -30,21 +30,21 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import numpy as np
 import pandas as pd
 
-from pydpeet.process.analyze.extract.field_data_loader import split_by_time_window
-from pydpeet.process.analyze.extract.pauses import extract_pauses
-from pydpeet.process.analyze.extract.ocv_simple import pauses_to_ocv_simple
+from pydpeet.process.analyze.extract.field_data.field_data_loader import split_by_time_window
+from pydpeet.process.analyze.extract.phases.pauses import extract_pauses
+from pydpeet.process.analyze.extract.phases.ocv_simple import pauses_to_ocv_simple
 from pydpeet.process.analyze.extract.half_cell_fitting import (
     find_best_half_cell_match,
     fit_half_cells,
     dir_anode,
     dir_cathode,
 )
-from pydpeet.process.analyze.extract.capa_curvefit import build_full_cell_ocv_curve
-from pydpeet.process.analyze.extract.capa_covered import (
+from pydpeet.process.analyze.extract.capacity.capa_curvefit import build_full_cell_ocv_curve
+from pydpeet.process.analyze.extract.capacity.capa_covered import (
     covered_soc_range,
     estimate_capacity_covered_mAh,
 )
-from pydpeet.process.analyze.extract.lithium_amount import calculate_electrode_quantities
+from pydpeet.process.analyze.extract.degradation.lithium_amount import calculate_electrode_quantities
 
 _REQUIRED_COLUMNS = ("Test_Time[s]", "Current[A]", "Voltage[V]", "SOC")
 
@@ -63,7 +63,7 @@ _SORT_OPTIONS = {
 }
 
 
-def fit_real_data(
+def fit_field_data(
     df: pd.DataFrame,
     *,
     window_days: float = 30.0,
@@ -293,7 +293,7 @@ def evaluate_chunks(
 
     Runs in three passes over the chunks (typically the output of
     :func:`split_by_time_window`, electrode pair typically the consensus
-    pair from :func:`fit_real_data`):
+    pair from :func:`fit_field_data`):
 
     1. **Fit + coverage** — extract pauses, build anchors, fit against the
        fixed pair (gate ``max_rmse_mv``), build the reference curve, and
@@ -313,7 +313,7 @@ def evaluate_chunks(
         ``Voltage[V]`` and ``SOC``.
     anode_name, cathode_name : str
         File names of the reference half-cells (e.g. from the consensus
-        table of :func:`fit_real_data`).
+        table of :func:`fit_field_data`).
     anodes_dir, cathodes_dir : str
         Directories of the half-cell references.
     min_pause_duration_s : float, default 600
