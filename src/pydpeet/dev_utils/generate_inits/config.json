@@ -72,6 +72,43 @@
   "src/pydpeet/utils/logging_style.py": {
     "depth": 3,
     "exports": ["set_logging_style"]
+  },
+    "src/pydpeet/process/analyze/extract/phases/pauses.py": {
+    "depth": 3,
+    "exports": ["extract_pauses"]
+  },
+  "src/pydpeet/process/analyze/extract/phases/fuds.py": {
+    "depth": 3,
+    "exports": ["extract_fuds"]
+  },
+  "src/pydpeet/process/analyze/extract/phases/ocv_simple.py": {
+    "depth": 3,
+    "exports": ["pauses_to_ocv_simple"]
+  },
+  "src/pydpeet/process/analyze/extract/half_cell_fitting.py": {
+    "depth": 3,
+    "exports": ["get_best_half_cell_fit", "find_best_half_cell_match", "fit_half_cells", "plot_half_cell_match", "dir_anode", "dir_cathode"]
+  },
+  "src/pydpeet/process/analyze/extract/capacity/capa_curvefit.py": {
+    "depth": 3,
+    "exports": ["build_full_cell_ocv_curve"]
+  },
+  "src/pydpeet/process/analyze/extract/capacity/capa_covered.py": {
+    "depth": 3,
+    "exports": ["lli_lam_covered", "estimate_capacity_covered_mAh", "covered_soc_range"]
+  },
+  "src/pydpeet/process/analyze/extract/degradation/lithium_amount.py": {
+    "depth": 3,
+    "exports": ["calculate_electrode_quantities"]
+  },
+  "src/pydpeet/process/analyze/extract/degradation/lli_lam.py": {
+    "depth": 3,
+    "exports": ["calculate_lli_lam"]
+  },
+  "src/pydpeet/process/analyze/extract/field_data/fit_field_data.py": {
+    "depth": 3,
+    "exports": ["fit_field_data", "evaluate_chunks", "split_by_time_window"]
   }
+
 
 }

@@ -30,7 +30,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import numpy as np
 import pandas as pd
 
-from pydpeet.process.analyze.extract.field_data.field_data_loader import split_by_time_window
 from pydpeet.process.analyze.extract.phases.pauses import extract_pauses
 from pydpeet.process.analyze.extract.phases.ocv_simple import pauses_to_ocv_simple
 from pydpeet.process.analyze.extract.half_cell_fitting import (
@@ -61,6 +60,54 @@ _SORT_OPTIONS = {
     "mean":   (["mean_rmse"], [True]),
     "wins":   (["wins", "median_rmse"], [False, True]),
 }
+
+
+def split_by_time_window(
+    df: pd.DataFrame,
+    window_days: float = 30.0,
+    *,
+    time_column: str = "Test_Time[s]",
+    reset_time: bool = False,
+) -> list[pd.DataFrame]:
+    """
+    Split a field-data DataFrame into chunks of ``window_days`` days each,
+    bucketed on ``time_column`` (default ``Test_Time[s]``).
+
+    Each chunk covers a contiguous ``[k * window, (k + 1) * window)``
+    interval, in chronological order. Empty windows are skipped, so
+    chunks are not guaranteed to be exactly ``window_days`` apart when
+    the source has gaps.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Frame produced by :func:`~pydpeet.process.analyze.extract.field_data.field_data_loader.load_field_data`
+        or :func:`~pydpeet.process.analyze.extract.field_data.field_data_loader.load_field_data_csv`,
+        or from :func:`eet.read` with ``config="field_data_csv"``.
+    window_days : float, default 30
+        Window length in days.
+    time_column : str, default "Test_Time[s]"
+        Column to bucket on.
+    reset_time : bool, default False
+        If True, subtract each chunk's first ``time_column`` value so
+        every chunk starts at 0.
+
+    Returns
+    -------
+    list[pd.DataFrame]
+        One DataFrame per window, with the original column layout.
+    """
+    if df.empty:
+        return []
+    window_s = float(window_days) * 86400.0
+    bucket = (df[time_column].to_numpy() // window_s).astype(int)
+    chunks: list[pd.DataFrame] = []
+    for _, group in df.groupby(bucket, sort=True):
+        chunk = group.reset_index(drop=True)
+        if reset_time:
+            chunk[time_column] = chunk[time_column] - chunk[time_column].iloc[0]
+        chunks.append(chunk)
+    return chunks
 
 
 def fit_field_data(
