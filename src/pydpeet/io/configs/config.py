@@ -63,6 +63,10 @@ import pydpeet.io.device.zahner_new.formatter as zahner_new_formatter
 import pydpeet.io.device.zahner_new.mapper as zahner_new_mapper
 import pydpeet.io.device.zahner_new.reader as zahner_new_reader
 
+#field data
+import pydpeet.io.device.field_data_csv.formatter as field_data_csv_formatter
+import pydpeet.io.device.field_data_csv.mapper as field_data_csv_mapper
+import pydpeet.io.device.field_data_csv.reader as field_data_csv_reader
 
 class Config(Enum):
     Zahner_1 = auto()
@@ -78,6 +82,7 @@ class Config(Enum):
     BaSyTec_6_3_1_0 = auto()
     Arbin_8_00_PV221201 = auto()
     Arbin_4_23_PV090331 = auto()
+    Field_Data_CSV = auto()
     Custom = auto()
 
     @classmethod
@@ -93,6 +98,7 @@ class Config(Enum):
             "basytec_6_3_1_0": cls.BaSyTec_6_3_1_0,
             "digatron_4_20_6_236": cls.Digatron_4_20_6_236,
             "digatron_eis_4_20_6_236": cls.Digatron_EIS_4_20_6_236,
+            "field_data_csv": cls.Field_Data_CSV,
             "neware_8_0_0_516": cls.Neware_8_0_0_516,
             "parstat_2_63_3": cls.Parstat_2_63_3,
             "safion_1_9": cls.Safion_1_9,
@@ -168,6 +174,7 @@ READER_CONFIGS: dict[Config, Callable[[str], DataFrame]] = {
     Config.BaSyTec_6_3_1_0: basytec_6_3_1_0_reader.to_dataframe,
     Config.Arbin_8_00_PV221201: arbin_8_00_PV221201_reader.to_dataframe,
     Config.Arbin_4_23_PV090331: arbin_4_23_PV090331_reader.to_dataframe,
+    Config.Field_Data_CSV: field_data_csv_reader.to_dataframe,
 }
 
 MAPPER_CONFIGS: dict[Config, tuple[dict[str, str], list[str]]] = {
@@ -199,6 +206,7 @@ MAPPER_CONFIGS: dict[Config, tuple[dict[str, str], list[str]]] = {
         arbin_4_23_PV090331_mapper.COLUMN_MAP,
         arbin_4_23_PV090331_mapper.MISSING_REQUIRED_COLUMNS,
     ),
+    Config.Field_Data_CSV: (field_data_csv_mapper.COLUMN_MAP,field_data_csv_mapper.MISSING_REQUIRED_COLUMNS),
 }
 
 FORMATTER_CONFIGS: dict[Config, Callable[[DataFrame], DataFrame]] = {
@@ -218,6 +226,8 @@ FORMATTER_CONFIGS: dict[Config, Callable[[DataFrame], DataFrame]] = {
     Config.BaSyTec_6_3_1_0: basytec_6_3_1_0_formatter.get_data_into_format,
     Config.Arbin_8_00_PV221201: arbin_8_00_PV221201_formatter.get_data_into_format,
     Config.Arbin_4_23_PV090331: arbin_4_23_PV090331_formatter.get_data_into_format,
+    Config.Field_Data_CSV: field_data_csv_formatter.get_data_into_format,
+
 }
 
 
