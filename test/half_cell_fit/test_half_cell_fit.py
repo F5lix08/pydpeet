@@ -7,7 +7,7 @@ import matplotlib
 import numpy as np
 import pandas
 
-from pydpeet.process.analyze.extract.haf_cell_fitting import (
+from pydpeet.process.analyze.extract.half_cell_fitting import (
     _build_electrode_spline,
     _detect_y_col,
     _objective_fn,

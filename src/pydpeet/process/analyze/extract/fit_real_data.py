@@ -33,7 +33,7 @@ import pandas as pd
 from pydpeet.process.analyze.extract.field_data_loader import split_by_time_window
 from pydpeet.process.analyze.extract.pauses import extract_pauses
 from pydpeet.process.analyze.extract.ocv_simple import pauses_to_ocv_simple
-from pydpeet.process.analyze.extract.haf_cell_fitting import (
+from pydpeet.process.analyze.extract.half_cell_fitting import (
     find_best_half_cell_match,
     fit_half_cells,
     dir_anode,
